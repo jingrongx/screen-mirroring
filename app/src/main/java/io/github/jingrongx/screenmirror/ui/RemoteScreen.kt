@@ -50,6 +50,9 @@ fun RemoteScreen(vm: ClientViewModel) {
     val context = LocalContext.current
     val activity = context as? Activity
 
+    // 系统返回键 = 断开连接（回到设备列表页），避免会话在后台残留
+    androidx.activity.compose.BackHandler { vm.disconnect() }
+
     // 控制端保持屏幕常亮
     DisposableEffect(Unit) {
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

@@ -293,13 +293,17 @@ class ControllerSession(
             if (closed) return
             closed = true
         }
-        closeScope.launch {
-            runCatching { socket?.sendJson(buildMsg(Protocol.MSG_BYE)) }
-            runCatching { socket?.close() }
-            runCatching { peer?.close() }
-        }
+        // 先捕获局部引用：协程异步执行时字段可能已被置 null，
+        // 否则 BYE 发不出、socket 不关，导致受控端连接泄漏（UI 卡"正在被控制"）
+        val sock = socket
+        val pc = peer
         socket = null
         peer = null
+        closeScope.launch {
+            runCatching { sock?.sendJson(buildMsg(Protocol.MSG_BYE)) }
+            runCatching { sock?.close() }
+            runCatching { pc?.close() }
+        }
         onClosed(reason)
     }
 
