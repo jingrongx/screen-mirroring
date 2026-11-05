@@ -1,0 +1,9 @@
+{
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "minVersionCode": 0,
+  "url": "https://github.com/jingrongx/screen-mirroring/releases/download/v1.0.0/ScreenMirror-v1.0.0.apk",
+  "sha256": null,
+  "changelog": "首个版本：局域网屏幕共享 + 远程触摸控制 + 声音共享（Android 10+）+ 应用内自动更新。",
+  "note": "此文件由 GitHub Actions 在发版时自动更新，请勿手改。"
+}

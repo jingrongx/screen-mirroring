@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">屏幕镜像</string>
+    <string name="accessibility_service_label">屏幕镜像 - 远程控制服务</string>
+    <string name="accessibility_service_desc">开启后，其他设备可以远程触摸和操作本机（模拟点击、滑动、返回、主页等）。本服务仅在屏幕共享连接期间注入手势，不会收集任何数据。</string>
+    <string name="mirror_notification_channel">屏幕共享</string>
+    <string name="mirror_notification_title">正在共享屏幕</string>
+    <string name="mirror_notification_text">其他设备可通过局域网连接并操作本机</string>
+    <string name="update_notification_channel">应用更新</string>
+</resources>
