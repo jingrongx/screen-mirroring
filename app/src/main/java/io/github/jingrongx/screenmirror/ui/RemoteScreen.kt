@@ -27,6 +27,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +68,22 @@ fun RemoteScreen(vm: ClientViewModel) {
         mutableStateOf(connected?.audioEnabled ?: false)
     }
 
+    // 控制条自动隐藏：触摸画面唤出，3.5 秒无操作淡出
+    var controlsVisible by remember { mutableStateOf(true) }
+    var lastActionAt by remember { mutableStateOf(0L) }
+    fun wakeControls() {
+        controlsVisible = true
+        lastActionAt = System.currentTimeMillis()
+    }
+
+    LaunchedEffect(controlsVisible, lastActionAt) {
+        if (controlsVisible) {
+            kotlinx.coroutines.delay(3500)
+            controlsVisible = false
+        }
+    }
+
+
     var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
 
     Box(
@@ -89,13 +106,17 @@ fun RemoteScreen(vm: ClientViewModel) {
                             setEnableHardwareScaler(true)
                             setZOrderOnTop(false)
                             setOnTouchListener { view, event ->
+                                wakeControls()
                                 handleTouch(view.width, view.height, vm.screenSize.first, vm.screenSize.second, event, vm)
                                 true
                             }
                             renderer = this
                         }
                     },
-                    modifier = Modifier.size(scale * vw, scale * vh),
+                    // 关键：画面在容器内居中（修复旋转后偏移不居中）
+                    modifier = Modifier
+                        .size(scale * vw, scale * vh)
+                        .align(Alignment.Center),
                 )
             } else {
                 Text(
@@ -148,50 +169,62 @@ fun RemoteScreen(vm: ClientViewModel) {
             }
         }
 
-        // 断开按钮
-        IconButton(
-            onClick = { vm.disconnect() },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp)
-                .background(Color(0x66000000), CircleShape),
+        // 断开按钮（随控制条自动隐藏）
+        androidx.compose.animation.AnimatedVisibility(
+            visible = controlsVisible,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+            modifier = Modifier.align(Alignment.TopEnd),
         ) {
-            Icon(Icons.Filled.Close, "断开", tint = Color.White)
+            IconButton(
+                onClick = { vm.disconnect() },
+                modifier = Modifier
+                    .padding(8.dp)
+                    .background(Color(0x66000000), CircleShape),
+            ) {
+                Icon(Icons.Filled.Close, "断开", tint = Color.White)
+            }
         }
 
-        // 底部控制条
+        // 底部控制条（随控制条自动隐藏，不常驻遮挡画面）
         if (connected != null) {
-            Surface(
-                color = Color(0xB3000000),
-                shape = MaterialTheme.shapes.large,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp),
+            androidx.compose.animation.AnimatedVisibility(
+                visible = controlsVisible,
+                enter = androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Surface(
+                    color = Color(0xB3000000),
+                    shape = MaterialTheme.shapes.large,
+                    modifier = Modifier.padding(bottom = 24.dp),
                 ) {
-                    IconButton(onClick = { vm.sendKey("back") }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Color.White)
-                    }
-                    IconButton(onClick = { vm.sendKey("home") }) {
-                        Icon(Icons.Filled.Home, "主页", tint = Color.White)
-                    }
-                    IconButton(onClick = { vm.sendKey("recents") }) {
-                        Icon(Icons.Filled.Apps, "最近任务", tint = Color.White)
-                    }
-                    if (connected.audioAvailable) {
-                        IconButton(onClick = {
-                            val next = !audioOn
-                            audioOn = next
-                            vm.setHostAudio(next)
-                        }) {
-                            if (audioOn) {
-                                Icon(Icons.Filled.VolumeUp, "关闭声音", tint = Color.White)
-                            } else {
-                                Icon(Icons.Filled.VolumeOff, "开启声音", tint = Color.White)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = { wakeControls(); vm.sendKey("back") }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Color.White)
+                        }
+                        IconButton(onClick = { wakeControls(); vm.sendKey("home") }) {
+                            Icon(Icons.Filled.Home, "主页", tint = Color.White)
+                        }
+                        IconButton(onClick = { wakeControls(); vm.sendKey("recents") }) {
+                            Icon(Icons.Filled.Apps, "最近任务", tint = Color.White)
+                        }
+                        if (connected.audioAvailable) {
+                            IconButton(onClick = {
+                                wakeControls()
+                                val next = !audioOn
+                                audioOn = next
+                                vm.setHostAudio(next)
+                            }) {
+                                if (audioOn) {
+                                    Icon(Icons.Filled.VolumeUp, "关闭声音", tint = Color.White)
+                                } else {
+                                    Icon(Icons.Filled.VolumeOff, "开启声音", tint = Color.White)
+                                }
                             }
                         }
                     }

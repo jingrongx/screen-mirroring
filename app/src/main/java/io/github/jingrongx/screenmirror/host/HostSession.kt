@@ -306,7 +306,13 @@ object HostSession {
             pc.addTrack(track, listOf("screen"))
             pc.senders.firstOrNull()?.let { sender ->
                 val params = sender.parameters
-                params.encodings.firstOrNull()?.maxBitrateBps = 6_000_000
+                params.encodings.firstOrNull()?.apply {
+                    // 流畅度优先：720p 源 + 上限 2.5Mbps，弱网时由 WebRTC 拥塞控制智能降码率
+                    maxBitrateBps = 2_500_000
+                    minBitrateBps = 300_000
+                }
+                // MAINTAIN_FRAMERATE = 网络差时保帧率、降分辨率（流畅优先）
+                params.degradationPreference = org.webrtc.RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
                 runCatching { sender.parameters = params }
             }
         }
