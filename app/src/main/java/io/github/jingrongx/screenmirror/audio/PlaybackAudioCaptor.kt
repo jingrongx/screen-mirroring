@@ -52,7 +52,7 @@ class PlaybackAudioCaptor(private val projection: MediaProjection) {
         capturing = true
         captureThread = thread(name = "audio-capture") {
             runCatching { record.startRecording() }
-            val chunk = ShortArray(sampleRate / 20) // 50ms 一帧
+            val chunk = ShortArray(sampleRate / 50) // 20ms 一帧，降低音频路径延迟
             while (capturing) {
                 val n = record.read(chunk, 0, chunk.size)
                 if (n <= 0) break

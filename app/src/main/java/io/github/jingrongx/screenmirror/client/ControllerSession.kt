@@ -204,7 +204,7 @@ class ControllerSession(
         }
         peer = factory.createPeerConnection(rtcConfig, clientObserver(sock))
         // 高起始码率：跳过默认的低码率冷启动爬坡（首连卡顿的主因），LAN 直连直接给足带宽
-        runCatching { peer?.setBitrate(500_000, 2_000_000, 2_500_000) }
+        runCatching { peer?.setBitrate(800_000, 4_000_000, 6_000_000) }
         startStatsLoop()
     }
 

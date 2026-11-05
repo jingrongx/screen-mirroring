@@ -38,6 +38,8 @@ class ProjectionScreenCapturer(
     @Volatile private var capturing = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private var frameCount = 0
+    private var dropCount = 0
+    private var lastForwardTsNs = 0L
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {}
@@ -72,8 +74,18 @@ class ProjectionScreenCapturer(
         onVideoSizeChanged?.invoke(tw, th)
 
         h.setTextureSize(tw, th)
-        // 采集线程产出的 VideoFrame 已带正确的尺寸/矩阵，直接转发给 WebRTC 管线
+        // 关键优化：合成器最高 60fps 出帧，编码器（尤其弱机）跟不上会导致帧队列堆积、
+        // 延迟爆炸到秒级。这里按时间戳节流到 ~30fps，未到间隔的帧直接丢弃（不进编码队列）。
         h.startListening(VideoSink { frame ->
+            val ts = frame.timestampNs
+            if (lastForwardTsNs != 0L && ts - lastForwardTsNs < FRAME_INTERVAL_NS) {
+                dropCount++
+                if (dropCount % 200 == 0) {
+                    android.util.Log.d("ScreenCapturer", "已节流丢弃 $dropCount 帧（编码器限流）")
+                }
+                return@VideoSink
+            }
+            lastForwardTsNs = ts
             frameCount++
             if (frameCount == 1 || frameCount % 100 == 0) {
                 android.util.Log.d("ScreenCapturer", "采集出帧 #${frameCount}（${frame.buffer.width}x${frame.buffer.height}）")
@@ -131,6 +143,9 @@ class ProjectionScreenCapturer(
     companion object {
         /** 采集目标分辨率：短边上限 720p（流畅优先，降低编码与传输负担） */
         private const val TARGET_SHORT_SIDE = 720
+
+        /** 编码输入节流间隔：30fps（约 33.3ms） */
+        private const val FRAME_INTERVAL_NS = 33_300_000L
 
         fun targetSize(realW: Int, realH: Int): Pair<Int, Int> {
             val short = minOf(realW, realH)

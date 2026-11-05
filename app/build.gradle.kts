@@ -30,8 +30,8 @@ android {
         applicationId = "io.github.jingrongx.screenmirror"
         minSdk = 21
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.0.7"
+        versionCode = 9
+        versionName = "1.0.8"
 
         buildConfigField("String", "REPO_OWNER", "\"$repoOwner\"")
         buildConfigField("String", "REPO_NAME", "\"$repoName\"")

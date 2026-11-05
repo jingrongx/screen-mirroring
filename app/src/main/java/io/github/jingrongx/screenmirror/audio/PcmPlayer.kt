@@ -15,7 +15,7 @@ class PcmPlayer(
         if (track != null) return
         val minBuf = AudioTrack.getMinBufferSize(
             sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
-        ).coerceAtLeast(sampleRate * 2 / 5) // 约 200ms 缓冲，吸收网络抖动
+        ).coerceAtLeast(sampleRate * 2 / 10) // 约 100ms 缓冲：吸收抖动同时压低音画同步延迟
         val t = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()

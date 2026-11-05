@@ -307,12 +307,14 @@ object HostSession {
             pc.senders.firstOrNull()?.let { sender ->
                 val params = sender.parameters
                 params.encodings.firstOrNull()?.apply {
-                    // 流畅度优先：720p 源 + 上限 2.5Mbps，弱网时由 WebRTC 拥塞控制智能降码率
-                    maxBitrateBps = 2_500_000
-                    minBitrateBps = 300_000
+                    // LAN 直连带宽充足（RTT<5ms），码率放开到 6M 治模糊；
+                    // 弱网时由拥塞控制自动降。帧率上限 30 与采集节流一致。
+                    maxBitrateBps = 6_000_000
+                    minBitrateBps = 800_000
+                    maxFramerate = 30
                 }
-                // MAINTAIN_FRAMERATE = 网络差时保帧率、降分辨率（流畅优先）
-                params.degradationPreference = org.webrtc.RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
+                // BALANCED：编码器过载时降分辨率保延迟，而不是堆积帧队列（防秒级延迟）
+                params.degradationPreference = org.webrtc.RtpParameters.DegradationPreference.BALANCED
                 runCatching { sender.parameters = params }
             }
         }
