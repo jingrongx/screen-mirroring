@@ -1,8 +1,8 @@
 {
-  "versionCode": 3,
-  "versionName": "1.0.2",
+  "versionCode": 4,
+  "versionName": "1.0.3",
   "minVersionCode": 0,
-  "url": "https://github.com/jingrongx/screen-mirroring/releases/download/v1.0.2/ScreenMirror-v1.0.2.apk",
-  "sha256": "be045223ebcc486b1810584282467498a5491a5e044b51c2cdff0f544ce98fc7",
-  "changelog": "- feat: 更新机制完善（正式签名+浏览器下载+后台静默下载） (7751873)\n- chore(release): v1.0.1 自动更新 latest.json [skip ci] (557acec)"
+  "url": "https://github.com/jingrongx/screen-mirroring/releases/download/v1.0.3/ScreenMirror-v1.0.3.apk",
+  "sha256": "08349b9659cdb42e2cadef5421f2bb82560c2b6d5dde31660ab07d0d8a028613",
+  "changelog": "- feat: 远程画面自适应受控端屏幕方向与尺寸 (2d779fa)\n- chore(release): v1.0.2 自动更新 latest.json [skip ci] (1045c5a)"
 }
