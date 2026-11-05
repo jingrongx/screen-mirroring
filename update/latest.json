@@ -1,8 +1,8 @@
 {
-  "versionCode": 5,
-  "versionName": "1.0.4",
+  "versionCode": 6,
+  "versionName": "1.0.5",
   "minVersionCode": 0,
-  "url": "https://github.com/jingrongx/screen-mirroring/releases/download/v1.0.4/ScreenMirror-v1.0.4.apk",
-  "sha256": "fd02b22e6cc87709a85293c82e3630500b254383573b45021043230700e45638",
-  "changelog": "- fix: 修复控制端断开后受控端连接泄漏 (3a719b3)\n- chore(release): v1.0.3 自动更新 latest.json [skip ci] (0a67cc0)"
+  "url": "https://github.com/jingrongx/screen-mirroring/releases/download/v1.0.5/ScreenMirror-v1.0.5.apk",
+  "sha256": "9cdeea3ed676df88d94f208a5da5a8cbb0121256712ad0084fcea7cbb10fe960",
+  "changelog": "- feat: 流畅度优先（720p 智能码率）+ 画面居中修复 + 控制条自动隐藏 (6a3383e)\n- chore(release): v1.0.4 自动更新 latest.json [skip ci] (f28e40e)"
 }
