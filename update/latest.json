@@ -1,8 +1,8 @@
 {
-  "versionCode": 2,
-  "versionName": "1.0.1",
+  "versionCode": 3,
+  "versionName": "1.0.2",
   "minVersionCode": 0,
-  "url": "https://github.com/jingrongx/screen-mirroring/releases/download/v1.0.1/ScreenMirror-v1.0.1.apk",
-  "sha256": "f53272f384d2252d0450d9ff2d35f1f4ed4027084374f97a29268e2a8823a167",
-  "changelog": "- fix: 修复控制端主线程发 Answer 导致协商失败 (8c190e8)\n- chore(release): v1.0.0 自动更新 latest.json [skip ci] (6203e63)"
+  "url": "https://github.com/jingrongx/screen-mirroring/releases/download/v1.0.2/ScreenMirror-v1.0.2.apk",
+  "sha256": "be045223ebcc486b1810584282467498a5491a5e044b51c2cdff0f544ce98fc7",
+  "changelog": "- feat: 更新机制完善（正式签名+浏览器下载+后台静默下载） (7751873)\n- chore(release): v1.0.1 自动更新 latest.json [skip ci] (557acec)"
 }
