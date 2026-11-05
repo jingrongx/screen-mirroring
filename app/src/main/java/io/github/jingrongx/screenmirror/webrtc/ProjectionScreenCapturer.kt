@@ -23,6 +23,8 @@ import org.webrtc.VideoSink
  */
 class ProjectionScreenCapturer(
     private val projection: MediaProjection,
+    /** 视频/屏幕尺寸变化（含初始值与旋转重建）时回调，用于通知控制端 */
+    private val onVideoSizeChanged: ((width: Int, height: Int) -> Unit)? = null,
 ) : VideoCapturer {
 
     private var helper: SurfaceTextureHelper? = null
@@ -65,6 +67,7 @@ class ProjectionScreenCapturer(
         this.height = size.y
         dpi = ctx.resources.displayMetrics.densityDpi
         capturing = true
+        onVideoSizeChanged?.invoke(size.x, size.y)
 
         h.setTextureSize(size.x, size.y)
         // 采集线程产出的 VideoFrame 已带正确的尺寸/矩阵，直接转发给 WebRTC 管线
@@ -109,6 +112,7 @@ class ProjectionScreenCapturer(
         width = w
         height = h
         helper?.setTextureSize(w, h)
+        onVideoSizeChanged?.invoke(w, h)
         runCatching { virtualDisplay?.release() }
         virtualDisplay = projection.createVirtualDisplay(
             "ScreenMirrorCapture",

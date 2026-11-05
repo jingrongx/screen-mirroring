@@ -6,10 +6,10 @@ import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -44,7 +44,7 @@ import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 import kotlin.math.min
 
-/** 远程画面：WebRTC 渲染 + 触摸映射 + 控制条 */
+/** 远程画面：按受控端视频宽高比自适应布局（自动适配方向与大小），触摸按画面区域归一化映射 */
 @Composable
 fun RemoteScreen(vm: ClientViewModel) {
     val context = LocalContext.current
@@ -71,22 +71,38 @@ fun RemoteScreen(vm: ClientViewModel) {
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        AndroidView(
-            factory = { ctx ->
-                SurfaceViewRenderer(ctx).apply {
-                    init(EglProvider.eglBase.eglBaseContext, null)
-                    setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
-                    setEnableHardwareScaler(false)
-                    setZOrderOnTop(false)
-                    setOnTouchListener { view, event ->
-                        handleTouch(view.width, view.height, vm.screenSize.first, vm.screenSize.second, event, vm)
-                        true
-                    }
-                    renderer = this
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
+        // 按视频宽高比计算 SurfaceView 尺寸：撑满短边、居中，横竖屏自适应
+        BoxWithConstraints(Modifier.align(Alignment.Center)) {
+            val vw = vm.screenSize.first
+            val vh = vm.screenSize.second
+            if (vw > 0 && vh > 0) {
+                val scale = minOf(maxWidth / vw, maxHeight / vh)
+                AndroidView(
+                    factory = { ctx ->
+                        SurfaceViewRenderer(ctx).apply {
+                            init(EglProvider.eglBase.eglBaseContext, null)
+                            setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+                            // surface 尺寸跟随视频分辨率，由 GPU 精确缩放，画面无变形
+                            setEnableHardwareScaler(true)
+                            setZOrderOnTop(false)
+                            setOnTouchListener { view, event ->
+                                handleTouch(view.width, view.height, vm.screenSize.first, vm.screenSize.second, event, vm)
+                                true
+                            }
+                            renderer = this
+                        }
+                    },
+                    modifier = Modifier.size(scale * vw, scale * vh),
+                )
+            } else {
+                Text(
+                    "正在获取画面信息…",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+        }
 
         // 绑定视频轨道
         val currentRenderer = renderer
@@ -182,7 +198,11 @@ fun RemoteScreen(vm: ClientViewModel) {
     }
 }
 
-/** 触摸事件 → 受控端归一化坐标（按 letterbox 实际显示区域换算） */
+/**
+ * 触摸事件 → 受控端归一化坐标。
+ * SurfaceView 尺寸与视频宽高比一致（可能因取整有极小偏差），仍按 letterbox 换算保证正确。
+ * 受控端屏幕旋转后会推送 MSG_SCREEN 更新 videoW/videoH，触摸随最新尺寸映射。
+ */
 private fun handleTouch(
     viewW: Int,
     viewH: Int,

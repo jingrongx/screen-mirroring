@@ -138,7 +138,14 @@ object HostSession {
             videoSource = source
             val helper = SurfaceTextureHelper.create("capture-thread", EglProvider.eglBase.eglBaseContext)
             textureHelper = helper
-            val capturer = ProjectionScreenCapturer(projection)
+            val capturer = ProjectionScreenCapturer(projection) { w, h ->
+                // 尺寸变化（初始/旋转）：同步本地变量（触摸映射用）并广播给控制端
+                screenW = w
+                screenH = h
+                clientSocket?.let { sock ->
+                    runCatching { sock.sendJson(buildMsg(Protocol.MSG_SCREEN, "width" to w, "height" to h)) }
+                }
+            }
             capturer.initialize(helper, context, source.capturerObserver)
             capturer.startCapture(screenW, screenH, 30)
             this.capturer = capturer
