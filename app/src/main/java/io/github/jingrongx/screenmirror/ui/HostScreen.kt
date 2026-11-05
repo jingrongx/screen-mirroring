@@ -35,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,7 +73,22 @@ fun HostScreen(onBack: () -> Unit) {
             launchProjection()
         }
 
+    // 音频捕获需要 RECORD_AUDIO（危险权限，须运行时请求）；被拒则音频自动降级为仅画面
+    val audioPermLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+            if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            else launchProjection()
+        }
+
     fun startMirror() {
+        val wantAudio = audioEnabled && Build.VERSION.SDK_INT >= 29
+        val hasAudioPerm = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (wantAudio && !hasAudioPerm) {
+            audioPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
         if (Build.VERSION.SDK_INT >= 33) {
             notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
@@ -80,7 +96,19 @@ fun HostScreen(onBack: () -> Unit) {
         }
     }
 
-    val touchReady = GestureAccessibilityService.instance != null && Build.VERSION.SDK_INT >= 24
+    // 从系统设置返回时（ON_RESUME）刷新无障碍服务状态，避免"已开启但页面检测不到"
+    var accessibilityRefreshKey by rememberSaveable { mutableStateOf(0) }
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) accessibilityRefreshKey++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val touchReady = remember(accessibilityRefreshKey) {
+        GestureAccessibilityService.instance != null && Build.VERSION.SDK_INT >= 24
+    }
 
     Scaffold(
         topBar = {

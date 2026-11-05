@@ -1,7 +1,11 @@
 package io.github.jingrongx.screenmirror.ui
 
 import android.app.Activity
+import android.os.Build
 import android.view.MotionEvent
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -10,13 +14,16 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloseFullscreen
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
@@ -45,188 +52,181 @@ import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 import kotlin.math.min
 
-/** 远程画面：按受控端视频宽高比自适应布局（自动适配方向与大小），触摸按画面区域归一化映射 */
+/** 远程画面：
+ * 非全屏 = 画面区（上）+ 画面外控制条（下，不遮挡画面）；左上返回。
+ * 全屏 = 隐藏系统栏与控制条，仅左上返回、右上退出全屏、左下延迟角标。
+ */
 @Composable
 fun RemoteScreen(vm: ClientViewModel) {
     val context = LocalContext.current
     val activity = context as? Activity
 
-    // 系统返回键 = 断开连接（回到设备列表页），避免会话在后台残留
-    androidx.activity.compose.BackHandler { vm.disconnect() }
+    var fullscreen by remember { mutableStateOf(false) }
+    var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
+    val connectedForAudio = vm.sessionState as? ControllerSession.UiState.Connected
+    var audioOn by remember(connectedForAudio?.deviceName) {
+        mutableStateOf(connectedForAudio?.audioEnabled ?: true)
+    }
 
-    // 控制端保持屏幕常亮
     DisposableEffect(Unit) {
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            applyImmersive(activity, false)
         }
     }
+
+    DisposableEffect(fullscreen) {
+        applyImmersive(activity, fullscreen)
+        onDispose { }
+    }
+
+    androidx.activity.compose.BackHandler { vm.disconnect() }
 
     val sessionUi = vm.sessionState
     val connected = sessionUi as? ControllerSession.UiState.Connected
-    var audioOn by remember(connected?.deviceName) {
-        mutableStateOf(connected?.audioEnabled ?: false)
-    }
+    val stats = vm.peerStats
 
-    // 控制条自动隐藏：触摸画面唤出，3.5 秒无操作淡出
-    var controlsVisible by remember { mutableStateOf(true) }
-    var lastActionAt by remember { mutableStateOf(0L) }
-    fun wakeControls() {
-        controlsVisible = true
-        lastActionAt = System.currentTimeMillis()
-    }
-
-    LaunchedEffect(controlsVisible, lastActionAt) {
-        if (controlsVisible) {
-            kotlinx.coroutines.delay(3500)
-            controlsVisible = false
-        }
-    }
-
-
-    var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
-        // 按视频宽高比计算 SurfaceView 尺寸：撑满短边、居中，横竖屏自适应
-        BoxWithConstraints(Modifier.align(Alignment.Center)) {
-            val vw = vm.screenSize.first
-            val vh = vm.screenSize.second
-            if (vw > 0 && vh > 0) {
-                val scale = minOf(maxWidth / vw, maxHeight / vh)
-                AndroidView(
-                    factory = { ctx ->
-                        SurfaceViewRenderer(ctx).apply {
-                            init(EglProvider.eglBase.eglBaseContext, null)
-                            setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
-                            // surface 尺寸跟随视频分辨率，由 GPU 精确缩放，画面无变形
-                            setEnableHardwareScaler(true)
-                            setZOrderOnTop(false)
-                            setOnTouchListener { view, event ->
-                                wakeControls()
-                                handleTouch(view.width, view.height, vm.screenSize.first, vm.screenSize.second, event, vm)
-                                true
+    Column(Modifier.fillMaxSize().background(Color.Black)) {
+        // ---- 画面区（权重占满剩余空间） ----
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            BoxWithConstraints(Modifier.align(Alignment.Center)) {
+                val vw = vm.screenSize.first
+                val vh = vm.screenSize.second
+                if (vw > 0 && vh > 0) {
+                    val scale = minOf(maxWidth / vw, maxHeight / vh)
+                    AndroidView(
+                        factory = { ctx ->
+                            SurfaceViewRenderer(ctx).apply {
+                                init(EglProvider.eglBase.eglBaseContext, null)
+                                setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+                                setEnableHardwareScaler(true)
+                                setZOrderOnTop(false)
+                                setOnTouchListener { view, event ->
+                                    handleTouch(view.width, view.height, vm.screenSize.first, vm.screenSize.second, event, vm)
+                                    true
+                                }
+                                renderer = this
                             }
-                            renderer = this
-                        }
-                    },
-                    // 关键：画面在容器内居中（修复旋转后偏移不居中）
-                    modifier = Modifier
-                        .size(scale * vw, scale * vh)
-                        .align(Alignment.Center),
-                )
-            } else {
+                        },
+                        modifier = Modifier
+                            .size(scale * vw, scale * vh)
+                            .align(Alignment.Center),
+                    )
+                } else {
+                    Text(
+                        "正在连接…",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                }
+            }
+
+            val currentRenderer = renderer
+            DisposableEffect(vm.videoTrack, currentRenderer) {
+                val track = vm.videoTrack
+                if (track != null && currentRenderer != null) {
+                    track.addSink(currentRenderer)
+                }
+                onDispose {
+                    if (track != null && currentRenderer != null) {
+                        track.removeSink(currentRenderer)
+                    }
+                }
+            }
+
+            if (sessionUi is ControllerSession.UiState.Connecting) {
                 Text(
-                    "正在获取画面信息…",
+                    "正在连接…",
                     color = Color.White,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.align(Alignment.Center),
                 )
             }
-        }
 
-        // 绑定视频轨道
-        val currentRenderer = renderer
-        DisposableEffect(vm.videoTrack, currentRenderer) {
-            val track = vm.videoTrack
-            if (track != null && currentRenderer != null) {
-                track.addSink(currentRenderer)
+            // 左上角：返回（断开连接）
+            IconButton(
+                onClick = { vm.disconnect() },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .background(Color(0x4D000000), CircleShape),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Color.White)
             }
-            onDispose {
-                if (track != null && currentRenderer != null) {
-                    track.removeSink(currentRenderer)
+
+            // 全屏模式：右上角退出全屏
+            if (fullscreen) {
+                IconButton(
+                    onClick = { fullscreen = false },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .background(Color(0x4D000000), CircleShape),
+                ) {
+                    Icon(Icons.Filled.CloseFullscreen, "退出全屏", tint = Color.White)
+                }
+            }
+
+            // 延迟角标（左下角小字）
+            val st = stats
+            if (st != null) {
+                val parts = mutableListOf<String>()
+                st.rttMs?.let { parts.add("${it}ms") }
+                st.fps?.let { if (it > 0) parts.add("${it.toInt()}fps") }
+                if (parts.isNotEmpty()) {
+                    Text(
+                        parts.joinToString(" · "),
+                        color = Color(0x8CFFFFFF),
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(10.dp),
+                    )
                 }
             }
         }
 
-        if (sessionUi is ControllerSession.UiState.Connecting) {
-            Text(
-                "正在连接 ${((sessionUi) as ControllerSession.UiState.Connecting).deviceName}…",
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.align(Alignment.Center),
-            )
-        }
-
-        // 远程触摸不可用提示
-        if (connected != null && !connected.touchAvailable) {
-            Surface(
-                color = Color(0xCC000000),
-                shape = MaterialTheme.shapes.small,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 32.dp),
-            ) {
-                Text(
-                    "受控端未开启无障碍服务，只能观看画面",
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-            }
-        }
-
-        // 断开按钮（随控制条自动隐藏）
-        androidx.compose.animation.AnimatedVisibility(
-            visible = controlsVisible,
-            enter = androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.fadeOut(),
-            modifier = Modifier.align(Alignment.TopEnd),
-        ) {
-            IconButton(
-                onClick = { vm.disconnect() },
-                modifier = Modifier
-                    .padding(8.dp)
-                    .background(Color(0x66000000), CircleShape),
-            ) {
-                Icon(Icons.Filled.Close, "断开", tint = Color.White)
-            }
-        }
-
-        // 底部控制条（随控制条自动隐藏，不常驻遮挡画面）
-        if (connected != null) {
-            androidx.compose.animation.AnimatedVisibility(
-                visible = controlsVisible,
-                enter = androidx.compose.animation.fadeIn(),
-                exit = androidx.compose.animation.fadeOut(),
-                modifier = Modifier.align(Alignment.BottomCenter),
-            ) {
-                Surface(
-                    color = Color(0xB3000000),
-                    shape = MaterialTheme.shapes.large,
-                    modifier = Modifier.padding(bottom = 24.dp),
+        // ---- 画面外控制条（非全屏时显示，永不遮挡画面） ----
+        if (!fullscreen && connected != null) {
+            Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = { wakeControls(); vm.sendKey("back") }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Color.White)
-                        }
-                        IconButton(onClick = { wakeControls(); vm.sendKey("home") }) {
-                            Icon(Icons.Filled.Home, "主页", tint = Color.White)
-                        }
-                        IconButton(onClick = { wakeControls(); vm.sendKey("recents") }) {
-                            Icon(Icons.Filled.Apps, "最近任务", tint = Color.White)
-                        }
-                        if (connected.audioAvailable) {
-                            IconButton(onClick = {
-                                wakeControls()
-                                val next = !audioOn
-                                audioOn = next
-                                vm.setHostAudio(next)
-                            }) {
-                                if (audioOn) {
-                                    Icon(Icons.Filled.VolumeUp, "关闭声音", tint = Color.White)
-                                } else {
-                                    Icon(Icons.Filled.VolumeOff, "开启声音", tint = Color.White)
-                                }
+                    IconButton(onClick = { vm.sendKey("back") }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回键", tint = MaterialTheme.colorScheme.onSurface)
+                    }
+                    IconButton(onClick = { vm.sendKey("home") }) {
+                        Icon(Icons.Filled.Home, "主页键", tint = MaterialTheme.colorScheme.onSurface)
+                    }
+                    IconButton(onClick = { vm.sendKey("recents") }) {
+                        Icon(Icons.Filled.Apps, "最近任务键", tint = MaterialTheme.colorScheme.onSurface)
+                    }
+                    if (connected.audioAvailable) {
+                        IconButton(onClick = {
+                            val next = !audioOn
+                            audioOn = next
+                            vm.setHostAudio(next)
+                        }) {
+                            if (audioOn) {
+                                Icon(Icons.Filled.VolumeUp, "关闭声音", tint = MaterialTheme.colorScheme.onSurface)
+                            } else {
+                                Icon(Icons.Filled.VolumeOff, "开启声音", tint = MaterialTheme.colorScheme.onSurface)
                             }
                         }
+                    }
+                    IconButton(onClick = { fullscreen = true }) {
+                        Icon(Icons.Filled.Fullscreen, "全屏", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -234,11 +234,35 @@ fun RemoteScreen(vm: ClientViewModel) {
     }
 }
 
-/**
- * 触摸事件 → 受控端归一化坐标。
- * SurfaceView 尺寸与视频宽高比一致（可能因取整有极小偏差），仍按 letterbox 换算保证正确。
- * 受控端屏幕旋转后会推送 MSG_SCREEN 更新 videoW/videoH，触摸随最新尺寸映射。
- */
+/** 沉浸式全屏：隐藏系统栏；API 30+ 用 WindowInsetsController，低版本用 systemUiVisibility */
+private fun applyImmersive(activity: Activity?, enable: Boolean) {
+    val window = activity?.window ?: return
+    if (Build.VERSION.SDK_INT >= 30) {
+        window.setDecorFitsSystemWindows(!enable)
+        val controller = window.insetsController ?: return
+        if (enable) {
+            controller.hide(WindowInsets.Type.systemBars())
+            controller.systemBarsBehavior =
+                WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            controller.show(WindowInsets.Type.systemBars())
+        }
+    } else {
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = if (enable) {
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        } else {
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        }
+    }
+}
+
+/** 触摸事件 → 受控端归一化坐标（受控端旋转后随 MSG_SCREEN 更新映射） */
 private fun handleTouch(
     viewW: Int,
     viewH: Int,
@@ -288,7 +312,6 @@ private fun handleTouch(
         MotionEvent.ACTION_UP -> {
             val (x, y) = norm(event.x, event.y)
             vm.sendTouch(MotionEvent.ACTION_UP, x, y, event.getPointerId(0))
-            // 同组其他指针补取消，避免受控端残留笔画
             for (i in 0 until event.pointerCount) {
                 val id = event.getPointerId(i)
                 if (id != event.getPointerId(0)) {

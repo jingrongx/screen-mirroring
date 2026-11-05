@@ -18,12 +18,15 @@ import io.github.jingrongx.screenmirror.webrtc.iceCandidateJson
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -46,6 +49,14 @@ import java.net.Socket
  * 控制端会话：连接受控端 TCP 端口，交换信令，渲染视频，发送触摸/按键。
  * 一个会话同一时间只处理一台受控端。
  */
+/** 连接质量统计（每秒采样） */
+data class PeerStats(
+    val rttMs: Int?,      // 网络往返时延
+    val fps: Double?,     // 接收帧率
+    val width: Int?,      // 视频宽
+    val height: Int?,     // 视频高
+)
+
 class ControllerSession(
     private val appContext: Context,
     private val onVideoTrack: (VideoTrack) -> Unit,
@@ -70,8 +81,12 @@ class ControllerSession(
     private val _state = MutableStateFlow<UiState>(UiState.Idle)
     val state: StateFlow<UiState> = _state.asStateFlow()
 
+    private val _stats = MutableStateFlow<PeerStats?>(null)
+    val stats: StateFlow<PeerStats?> = _stats.asStateFlow()
+
     private var socket: FramedSocket? = null
     private var peer: PeerConnection? = null
+    private var statsJob: Job? = null
 
     @Volatile private var closed = false
 
@@ -188,6 +203,56 @@ class ControllerSession(
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
         }
         peer = factory.createPeerConnection(rtcConfig, clientObserver(sock))
+        // 高起始码率：跳过默认的低码率冷启动爬坡（首连卡顿的主因），LAN 直连直接给足带宽
+        runCatching { peer?.setBitrate(500_000, 2_000_000, 2_500_000) }
+        startStatsLoop()
+    }
+
+    /** 每秒采样一次 WebRTC 统计：RTT / 帧率 / 分辨率 */
+    private fun startStatsLoop() {
+        statsJob?.cancel()
+        statsJob = scope.launch {
+            while (isActive) {
+                delay(1000)
+                val pc = peer ?: continue
+                runCatching {
+                    pc.getStats { report ->
+                        var rtt: Double? = null
+                        var fps: Double? = null
+                        var w: Int? = null
+                        var h: Int? = null
+                        for ((_, s) in report.statsMap) {
+                            when (s.type) {
+                                "candidate-pair" -> {
+                                    val m = s.members
+                                    val r = (m["currentRoundTripTime"] as? Number)?.toDouble()
+                                    val state = m["state"] as? String
+                                    if (r != null && (state == "succeeded" || m["nominated"] == true)) {
+                                        if (rtt == null || r < (rtt as Double)) rtt = r
+                                    }
+                                }
+
+                                "inbound-rtp" -> {
+                                    val m = s.members
+                                    val kind = m["kind"] as? String ?: m["mediaType"] as? String
+                                    if (kind == "video") {
+                                        fps = (m["framesPerSecond"] as? Number)?.toDouble()
+                                        w = (m["frameWidth"] as? Number)?.toInt()
+                                        h = (m["frameHeight"] as? Number)?.toInt()
+                                    }
+                                }
+                            }
+                        }
+                        _stats.value = PeerStats(
+                            rttMs = rtt?.let { (it * 1000).toInt() },
+                            fps = fps,
+                            width = w,
+                            height = h,
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun clientObserver(sock: FramedSocket) = object : PeerConnection.Observer {
@@ -297,6 +362,9 @@ class ControllerSession(
         // 否则 BYE 发不出、socket 不关，导致受控端连接泄漏（UI 卡"正在被控制"）
         val sock = socket
         val pc = peer
+        statsJob?.cancel()
+        statsJob = null
+        _stats.value = null
         socket = null
         peer = null
         closeScope.launch {

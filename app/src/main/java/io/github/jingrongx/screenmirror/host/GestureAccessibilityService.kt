@@ -117,6 +117,18 @@ class GestureAccessibilityService : AccessibilityService() {
                 else -> return@post
             }
             performGlobalAction(action)
+            if (key == "home") {
+                // 部分 TV ROM 对 GLOBAL_ACTION_HOME 无效，200ms 后兜底发 HOME Intent（幂等）
+                mainHandler.postDelayed({
+                    runCatching {
+                        applicationContext.startActivity(
+                            android.content.Intent(android.content.Intent.ACTION_MAIN)
+                                .addCategory(android.content.Intent.CATEGORY_HOME)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                }, 200)
+            }
         }
     }
 

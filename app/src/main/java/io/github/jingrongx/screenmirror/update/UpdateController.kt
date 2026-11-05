@@ -114,6 +114,14 @@ class UpdateController(private val context: Context) {
         }
     }
 
+    /** 从授权页返回时（ON_RESUME）复查：已授权则直接拉起安装 */
+    fun refreshPermissionState() {
+        if (ui.needPermission && ui.downloadedApk != null && ApkInstaller.canInstall(appContext)) {
+            ui = ui.copy(needPermission = false)
+            ApkInstaller.install(appContext, ui.downloadedApk!!)
+        }
+    }
+
     fun requestInstallPermission() {
         ApkInstaller.requestInstallPermission(appContext)
     }

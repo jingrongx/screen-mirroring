@@ -28,6 +28,18 @@ fun UpdateDialog(controller: UpdateController) {
     if (!ui.showDialog) return
     val context = LocalContext.current
 
+    // 从系统"安装未知应用"授权页返回时（ON_RESUME）自动复查权限，已授权则直接拉起安装
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                controller.refreshPermissionState()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     AlertDialog(
         onDismissRequest = { controller.dismiss() },
         title = {

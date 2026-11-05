@@ -21,6 +21,8 @@ class ClientViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var sessionState by mutableStateOf<ControllerSession.UiState>(ControllerSession.UiState.Idle)
         private set
+    var peerStats by mutableStateOf<io.github.jingrongx.screenmirror.client.PeerStats?>(null)
+        private set
     var videoTrack by mutableStateOf<VideoTrack?>(null)
         private set
     var screenSize by mutableStateOf(0 to 0)
@@ -70,6 +72,7 @@ class ClientViewModel(app: Application) : AndroidViewModel(app) {
                 player.stop()
                 playerStarted = false
                 videoTrack = null
+                peerStats = null
                 session = null
                 sessionState = ControllerSession.UiState.Idle
                 if (reason != null) failure = reason
@@ -78,12 +81,17 @@ class ClientViewModel(app: Application) : AndroidViewModel(app) {
         session = s
         stateCollectJob?.cancel()
         stateCollectJob = viewModelScope.launch {
-            s.state.collect { st ->
-                sessionState = st
-                if (st is ControllerSession.UiState.Connected && st.audioAvailable && !playerStarted) {
-                    player.start()
-                    playerStarted = true
+            launch {
+                s.state.collect { st ->
+                    sessionState = st
+                    if (st is ControllerSession.UiState.Connected && st.audioAvailable && !playerStarted) {
+                        player.start()
+                        playerStarted = true
+                    }
                 }
+            }
+            launch {
+                s.stats.collect { peerStats = it }
             }
         }
         viewModelScope.launch { s.connect(device) }
