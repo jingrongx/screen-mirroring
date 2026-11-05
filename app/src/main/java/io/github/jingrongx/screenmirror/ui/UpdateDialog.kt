@@ -1,7 +1,10 @@
 package io.github.jingrongx.screenmirror.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
@@ -10,20 +13,27 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import io.github.jingrongx.screenmirror.update.UpdateConfig
 import io.github.jingrongx.screenmirror.update.UpdateController
 
-/** 更新对话框：检查中 / 已最新 / 新版本（含下载进度）/ 失败重试 / 强制更新 */
+/** 更新对话框：
+ * 自动检测 → 自动后台下载（可稍后）→ 下载完成提示安装（安装/稍后）
+ * 手动检查同样流程；下载失败可重试或用浏览器下载（国内代理直链）。
+ */
 @Composable
 fun UpdateDialog(controller: UpdateController) {
     val ui = controller.ui
     if (!ui.showDialog) return
+    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = { controller.dismiss() },
         title = {
             Text(
                 when {
+                    ui.downloadedApk != null -> "更新已就绪 v${ui.manifest?.versionName}"
                     ui.manifest != null -> "发现新版本 v${ui.manifest?.versionName}"
                     ui.error != null -> "更新失败"
                     ui.upToDate -> "已是最新版本"
@@ -44,13 +54,18 @@ fun UpdateDialog(controller: UpdateController) {
                                 progress = { ui.progress },
                                 modifier = Modifier.fillMaxWidth(),
                             )
-                            Text("正在下载 ${(ui.progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                "正在后台下载 ${(ui.progress * 100).toInt()}%，可稍后继续",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         } else if (ui.downloadedApk != null) {
                             if (ui.needPermission) {
-                                Text("需要先授予「安装未知应用」权限，授权后点击安装。")
+                                Text("需要先授予「安装未知应用」权限，授权后回来点「安装」。")
                             } else {
-                                Text("下载完成，可以安装。")
+                                Text("更新包已下载完成，可以安装；也可以选「稍后」，之后会再次提醒。")
                             }
+                        } else if (ui.error != null) {
+                            Text("下载失败：${ui.error}", style = MaterialTheme.typography.bodySmall)
                         }
                     }
 
@@ -64,7 +79,7 @@ fun UpdateDialog(controller: UpdateController) {
         },
         confirmButton = {
             when {
-                ui.manifest != null && ui.downloadedApk != null -> {
+                ui.downloadedApk != null -> {
                     TextButton(onClick = {
                         if (ui.needPermission) controller.requestInstallPermission() else controller.tryInstall()
                     }) {
@@ -72,9 +87,21 @@ fun UpdateDialog(controller: UpdateController) {
                     }
                 }
 
-                ui.manifest != null && !ui.downloading -> {
-                    TextButton(onClick = { controller.download() }) {
-                        Text(if (ui.forced) "立即更新" else "立即更新")
+                ui.manifest != null && ui.downloading -> {
+                    // 后台下载中：无需确认按钮
+                }
+
+                ui.manifest != null -> {
+                    Row {
+                        TextButton(onClick = { controller.download() }) { Text("重试") }
+                        TextButton(onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(UpdateConfig.PROXY_PREFIXES.first() + ui.manifest?.url))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }
+                        }) { Text("浏览器下载") }
                     }
                 }
 
@@ -84,14 +111,16 @@ fun UpdateDialog(controller: UpdateController) {
                     }
                 }
 
-                ui.upToDate || ui.checking -> {
+                else -> {
                     TextButton(onClick = { controller.dismiss() }) { Text("好的") }
                 }
             }
         },
         dismissButton = {
-            if (!ui.forced && !(ui.downloading)) {
-                TextButton(onClick = { controller.dismiss() }) { Text(if (ui.manifest != null) "稍后" else "取消") }
+            if (!ui.forced) {
+                TextButton(onClick = { controller.dismiss() }) {
+                    Text(if (ui.manifest != null) "稍后" else "取消")
+                }
             }
         },
     )

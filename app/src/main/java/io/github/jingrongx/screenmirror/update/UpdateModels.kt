@@ -47,6 +47,10 @@ data class UpdateManifest(
 object UpdatePrefs {
     private const val FILE = "update_prefs"
     private const val KEY_LAST_CHECK = "last_check"
+    private const val KEY_PENDING_PATH = "pending_path"
+    private const val KEY_PENDING_CODE = "pending_code"
+    private const val KEY_PENDING_NAME = "pending_name"
+    private const val KEY_PENDING_URL = "pending_url"
 
     fun lastCheckMillis(context: Context): Long =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getLong(KEY_LAST_CHECK, 0L)
@@ -54,6 +58,37 @@ object UpdatePrefs {
     fun markChecked(context: Context) {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
             .edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply()
+    }
+
+    /** 已下载待安装的更新包（跨进程持久化，"稍后安装"后仍可恢复提示） */
+    fun savePendingInstall(context: Context, manifest: UpdateManifest, apkPath: String) {
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+            .putString(KEY_PENDING_PATH, apkPath)
+            .putInt(KEY_PENDING_CODE, manifest.versionCode)
+            .putString(KEY_PENDING_NAME, manifest.versionName)
+            .putString(KEY_PENDING_URL, manifest.url)
+            .apply()
+    }
+
+    fun pendingInstallPath(context: Context): String? =
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(KEY_PENDING_PATH, null)
+
+    fun pendingInstallVersionCode(context: Context): Int =
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getInt(KEY_PENDING_CODE, 0)
+
+    fun pendingInstallVersionName(context: Context): String =
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .getString(KEY_PENDING_NAME, "") ?: ""
+
+    fun pendingInstallUrl(context: Context): String =
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .getString(KEY_PENDING_URL, "") ?: ""
+
+    fun clearPendingInstall(context: Context) {
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+            .remove(KEY_PENDING_PATH).remove(KEY_PENDING_CODE)
+            .remove(KEY_PENDING_NAME).remove(KEY_PENDING_URL)
+            .apply()
     }
 }
 

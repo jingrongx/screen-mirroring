@@ -44,8 +44,9 @@ private fun AppRoot() {
     val appContext = LocalContext.current.applicationContext
     val updateController = remember { UpdateController(appContext) }
 
-    // 每天自动静默检查一次更新（发现新版本才弹窗）
+    // 启动时：恢复「稍后安装」的待装包提示；每天自动静默检查一次更新（发现新版本自动后台下载）
     LaunchedEffect(Unit) {
+        updateController.restorePendingInstall()
         if (UpdateController.shouldAutoCheck(appContext)) {
             updateController.check(showResult = false)
         }
