@@ -2,6 +2,7 @@ package io.github.jingrongx.screenmirror.client
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import io.github.jingrongx.screenmirror.BuildConfig
 import io.github.jingrongx.screenmirror.discovery.NsdDiscovery
 import io.github.jingrongx.screenmirror.discovery.NsdRegistrar
@@ -73,6 +74,10 @@ class ControllerSession(
     private var peer: PeerConnection? = null
 
     @Volatile private var closed = false
+
+    // setRemoteDescription 完成前到达的 ICE 候选先入队，避免被静默丢弃
+    private val pendingIce = ArrayList<IceCandidate>()
+    private var remoteDescSet = false
 
     var screenWidth = 0
         private set
@@ -189,6 +194,7 @@ class ControllerSession(
         override fun onSignalingChange(state: PeerConnection.SignalingState) {}
 
         override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
+            Log.d(TAG, "控制端 ICE 状态: $state")
             if (state == PeerConnection.IceConnectionState.FAILED ||
                 state == PeerConnection.IceConnectionState.CLOSED
             ) {
@@ -197,11 +203,16 @@ class ControllerSession(
             }
         }
 
-        override fun onIceConnectionReceivingChange(receiving: Boolean) {}
+        override fun onIceConnectionReceivingChange(receiving: Boolean) {
+            Log.d(TAG, "控制端 ICE 收流中: $receiving")
+        }
 
-        override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
+        override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {
+            Log.d(TAG, "控制端 ICE 收集状态: $state")
+        }
 
         override fun onIceCandidate(candidate: IceCandidate) {
+            Log.d(TAG, "控制端发送候选: ${candidate.sdp}")
             runCatching { sock.sendJson(iceCandidateJson(candidate)) }
         }
 
@@ -216,6 +227,7 @@ class ControllerSession(
         override fun onRenegotiationNeeded() {}
 
         override fun onAddTrack(receiver: RtpReceiver?, mediaStreams: Array<out MediaStream>?) {
+            Log.d(TAG, "收到远端轨道: ${receiver?.track()?.kind()}")
             val track = receiver?.track()
             if (track is VideoTrack) onVideoTrack(track)
         }
@@ -230,12 +242,21 @@ class ControllerSession(
                 scope.launch {
                     val pc = peer ?: return@launch
                     try {
+                        Log.d(TAG, "收到 Offer，开始 setRemoteDescription")
                         pc.setRemoteDescriptionSuspend(SessionDescription(SessionDescription.Type.OFFER, sdp))
+                        remoteDescSet = true
+                        flushPendingIce(pc)
+                        Log.d(TAG, "setRemoteDescription 成功，创建 Answer")
                         val answer = pc.createAnswerSuspend()
                         pc.setLocalDescriptionSuspend(answer)
-                        sock.sendJson(buildMsg(Protocol.MSG_ANSWER, "sdp" to answer.description))
+                        Log.d(TAG, "setLocalDescription 成功，发送 Answer")
+                        // 本协程运行在主线程，Socket 写操作必须切到 IO 线程（NetworkOnMainThreadException）
+                        withContext(Dispatchers.IO) {
+                            sock.sendJson(buildMsg(Protocol.MSG_ANSWER, "sdp" to answer.description))
+                        }
                     } catch (e: Exception) {
-                        close("媒体协商失败：${e.message ?: "未知错误"}")
+                        Log.e(TAG, "媒体协商失败", e)
+                        close("媒体协商失败：${e.javaClass.simpleName}: ${e.message ?: "无详细信息"}")
                     }
                 }
             }
@@ -244,7 +265,12 @@ class ControllerSession(
                 val candidate = obj["candidate"]?.jsonPrimitive?.contentOrNull ?: return
                 val mid = obj["sdpMid"]?.jsonPrimitive?.contentOrNull ?: "0"
                 val mline = obj["sdpMLineIndex"]?.jsonPrimitive?.intOrNull ?: 0
-                runCatching { peer?.addIceCandidate(IceCandidate(mid, mline, candidate)) }
+                val ice = IceCandidate(mid, mline, candidate)
+                if (remoteDescSet) {
+                    runCatching { peer?.addIceCandidate(ice) }
+                } else {
+                    synchronized(pendingIce) { pendingIce.add(ice) }
+                }
             }
 
             Protocol.MSG_SCREEN -> {
@@ -277,7 +303,18 @@ class ControllerSession(
         onClosed(reason)
     }
 
+    private fun flushPendingIce(pc: PeerConnection) {
+        val list = synchronized(pendingIce) {
+            val l = ArrayList(pendingIce)
+            pendingIce.clear()
+            l
+        }
+        for (c in list) runCatching { pc.addIceCandidate(c) }
+        Log.d(TAG, "补充应用了 ${list.size} 个先到的 ICE 候选")
+    }
+
     companion object {
+        private const val TAG = "ControllerSession"
         private const val CONNECT_TIMEOUT_MS = 6000
     }
 }

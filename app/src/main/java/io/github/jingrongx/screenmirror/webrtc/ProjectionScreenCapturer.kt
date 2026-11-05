@@ -35,6 +35,7 @@ class ProjectionScreenCapturer(
 
     @Volatile private var capturing = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var frameCount = 0
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {}
@@ -67,7 +68,13 @@ class ProjectionScreenCapturer(
 
         h.setTextureSize(size.x, size.y)
         // 采集线程产出的 VideoFrame 已带正确的尺寸/矩阵，直接转发给 WebRTC 管线
-        h.startListening(VideoSink { frame -> observer?.onFrameCaptured(frame) })
+        h.startListening(VideoSink { frame ->
+            frameCount++
+            if (frameCount == 1 || frameCount % 100 == 0) {
+                android.util.Log.d("ScreenCapturer", "采集出帧 #${frameCount}（${frame.buffer.width}x${frame.buffer.height}）")
+            }
+            observer?.onFrameCaptured(frame)
+        })
 
         virtualDisplay = projection.createVirtualDisplay(
             "ScreenMirrorCapture",

@@ -1,6 +1,7 @@
 package io.github.jingrongx.screenmirror.webrtc
 
 import android.content.Context
+import io.github.jingrongx.screenmirror.BuildConfig
 import io.github.jingrongx.screenmirror.signaling.Protocol
 import io.github.jingrongx.screenmirror.signaling.buildMsg
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -26,6 +27,10 @@ object WebrtcHelper {
         factory?.let { return it }
         synchronized(this) {
             factory?.let { return it }
+            // debug 构建：native 层日志输出到 logcat，便于现场排查协商失败等问题
+            if (BuildConfig.DEBUG) {
+                runCatching { org.webrtc.Logging.enableLogToDebugOutput(org.webrtc.Logging.Severity.LS_INFO) }
+            }
             PeerConnectionFactory.initialize(
                 PeerConnectionFactory.InitializationOptions.builder(context.applicationContext)
                     // 关闭 mDNS 候选混淆：纯局域网 P2P 场景下避免 .local 候选无法解析导致连接失败

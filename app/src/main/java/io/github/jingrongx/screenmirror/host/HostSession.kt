@@ -210,15 +210,20 @@ object HostSession {
 
     private fun refreshIdleState() {
         if (_state.value is UiState.Streaming) return
-        if (projection == null) return
-        _state.value = UiState.Waiting(
-            serviceName.ifEmpty { NsdRegistrar.serviceDisplayName() },
-            NetUtils.localIpAddress(),
-            Protocol.PORT,
-            audioAvailable = Build.VERSION.SDK_INT >= 29,
-            audioEnabled = audioWanted,
-        )
+        if (projection == null) {
+            _state.value = UiState.Idle
+            return
+        }
+        _state.value = waitingState()
     }
+
+    private fun waitingState() = UiState.Waiting(
+        serviceName.ifEmpty { NsdRegistrar.serviceDisplayName() },
+        NetUtils.localIpAddress(),
+        Protocol.PORT,
+        audioAvailable = Build.VERSION.SDK_INT >= 29,
+        audioEnabled = audioWanted,
+    )
 
     private fun startAudioCapture() {
         if (Build.VERSION.SDK_INT < 29) return
@@ -243,6 +248,16 @@ object HostSession {
     }
 
     private suspend fun handleClient(sock: FramedSocket) = withContext(Dispatchers.IO) {
+        try {
+            handleClientInternal(sock)
+        } catch (e: Exception) {
+            Log.e(TAG, "处理客户端连接异常", e)
+            runCatching { sock.close() }
+            if (clientSocket === sock) dropClient()
+        }
+    }
+
+    private suspend fun handleClientInternal(sock: FramedSocket) = withContext(Dispatchers.IO) {
         // 已有连接时踢掉旧客户端
         dropClient()
         val hello = sock.readJson()
@@ -290,6 +305,7 @@ object HostSession {
         }
         val offer = pc.createOfferSuspend(MediaConstraints())
         pc.setLocalDescriptionSuspend(offer)
+        Log.d(TAG, "Offer 已创建并发送（${offer.description.length} 字节）")
         sock.sendJson(buildMsg(Protocol.MSG_OFFER, "sdp" to offer.description))
 
         // 信令 + 控制指令收包循环
@@ -316,6 +332,7 @@ object HostSession {
         override fun onSignalingChange(state: SignalingState) {}
 
         override fun onIceConnectionChange(newState: IceConnectionState) {
+            Log.d(TAG, "宿主 ICE 状态: $newState")
             if (newState == IceConnectionState.FAILED || newState == IceConnectionState.CLOSED) {
                 scope.launch(Dispatchers.IO) {
                     if (clientSocket === sock) dropClient()
@@ -323,11 +340,16 @@ object HostSession {
             }
         }
 
-        override fun onIceConnectionReceivingChange(receiving: Boolean) {}
+        override fun onIceConnectionReceivingChange(receiving: Boolean) {
+            Log.d(TAG, "宿主 ICE 收流中: $receiving")
+        }
 
-        override fun onIceGatheringChange(state: IceGatheringState) {}
+        override fun onIceGatheringChange(state: IceGatheringState) {
+            Log.d(TAG, "宿主 ICE 收集状态: $state")
+        }
 
         override fun onIceCandidate(candidate: IceCandidate) {
+            Log.d(TAG, "宿主发送候选: ${candidate.sdp}")
             runCatching { sock.sendJson(iceCandidateJson(candidate)) }
         }
 
@@ -405,6 +427,7 @@ object HostSession {
             scope.launch(Dispatchers.IO) { runCatching { job.cancelAndJoin() } }
         }
         stopAudioCapture()
-        if (_state.value is UiState.Streaming) refreshIdleState()
+        // 客户端断开后必须回到等待状态（refreshIdleState 会因 Streaming 提前返回，需直接赋值）
+        if (_state.value is UiState.Streaming) _state.value = waitingState()
     }
 }
